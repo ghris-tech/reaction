@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<title>Reaction Time — 5 trials</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;padding:24px;background:#f7f7f7;color:#111}
+  .card{max-width:720px;margin:0 auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+  h1{margin:0 0 8px;font-size:20px}
+  p{margin:8px 0}
+  #bigBtn{display:block;width:100%;height:180px;border-radius:8px;font-size:22px;border:0;margin-top:18px}
+  #results{margin-top:12px}
+  .small{font-size:13px;color:#555}
+  button.secondary{margin-top:10px}
+  #qrLink{word-break:break-all}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Reaction Time Test — 5 Trials</h1>
+  <p class="small">Tap the big box as soon as the screen turns green. Complete 5 trials. Average is calculated and sent automatically.</p>
+
+  <div id="status">Ready. Press the box to begin.</div>
+  <button id="bigBtn" aria-live="polite">Start</button>
+
+  <div id="results"></div>
+  <div style="margin-top:12px" class="small">If you’re testing: open DevTools or network logger to confirm the POST to your script URL.</div>
+</div>
+
+<script>
+// YOUR APPS SCRIPT WEB APP ENDPOINT
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7qCbUyJLRBLuK7t3AtZJhQVAZiWcEV-6cqD2EOaFqhs2TSeSwB963XSzBfuppHTDy/exec';
+
+let state = 'idle'; // idle, wait, go, done
+let trials = [];
+let trialIndex = 0;
+let timeoutId = null;
+let goAt = 0;
+
+const btn = document.getElementById('bigBtn');
+const status = document.getElementById('status');
+const results = document.getElementById('results');
+
+function randDelay(){ return 800 + Math.floor(Math.random()*1600); } // 0.8s to 2.4s
+
+function startTrial(){
+  btn.style.background = '#d3d3d3';
+  btn.textContent = 'Wait for green...';
+  state = 'wait';
+  const delay = randDelay();
+  goAt = performance.now() + delay;
+  timeoutId = setTimeout(() => {
+    state = 'go';
+    btn.style.background = '#6cc96c';
+    btn.textContent = 'TAP!';
+  }, delay);
+}
+
+function endTrial(rt){
+  trials.push(Math.round(rt));
+  trialIndex++;
+  if (trialIndex < 5){
+    status.textContent = `Trial ${trialIndex} recorded: ${Math.round(rt)} ms — Next trial: press box to begin`;
+    btn.style.background = '#d3d3d3';
+    btn.textContent = 'Start next trial';
+    state = 'idle';
+  } else {
+    state = 'done';
+    const avg = Math.round(trials.reduce((a,b)=>a+b,0)/trials.length);
+    results.innerHTML = `<strong>Done — average: ${avg} ms</strong><div class="small">Trials: ${trials.join(', ')} ms</div><div class="small">Sending data...</div>`;
+    btn.style.display = 'none';
+    status.textContent = 'Completed';
+    sendData(avg);
+  }
+}
+
+function sendData(avg){
+  const payload = {
+    average_ms: avg,
+    trials: trials,
+    userAgent: navigator.userAgent || '',
+  };
+
+  fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r=>r.json())
+    .then(j=>{
+      results.innerHTML += `<div class="small">Server response: ${JSON.stringify(j)}</div>`;
+    })
+    .catch(err=>{
+      results.innerHTML += `<div class="small" style="color:crimson">Send failed: ${err}</div>`;
+    });
+}
+
+btn.addEventListener('click', (e)=>{
+  if (state === 'idle'){
+    startTrial();
+  } else if (state === 'wait'){
+    clearTimeout(timeoutId);
+    state = 'idle';
+    status.textContent = 'Too early! That trial is discarded. Press to try again.';
+    btn.style.background = '#f5a7a7';
+    btn.textContent = 'Too early — Retry trial';
+  } else if (state === 'go'){
+    const now = performance.now();
+    const realRT = Math.max(0, Math.round(now - goAt));
+    btn.style.background = '#d3d3d3';
+    btn.textContent = 'Recorded';
+    endTrial(realRT);
+  }
+});
+
+document.addEventListener('keydown', (e)=>{
+  if (e.code === 'Space' || e.key === 'Enter'){ btn.click(); e.preventDefault(); }
+});
+</script>
+</body>
+</html>
